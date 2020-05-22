@@ -1,0 +1,313 @@
+---
+title: "DON responsive gene hotspots in *Brachypodium distachyon*"
+author: "Harriet R. Benbow"
+date: "18/2/2020"
+output: bookdown::word_document2
+fig_caption: yes
+---
+
+<!-- Have to be in "/Users/harrietbenbow/Documents/Miguel/Hotspot/Brachypodium" for this md to work -->
+
+\newpage
+# Introduction
+
+Using RNAseq data of *B. distachyon*, we used our custom pipeline to identify clusters of DON and ROS-responsive genes across the five *B. distachyon* chromosomes.
+
+# Materials and Methods
+## The pipeline
+The pipeline takes, as an input, a .bed file of the genome of interest, in which Chromosome, Gene ID, Gene start and Gene end coordinates (i.e. position in the genome) are represented as columns (Table \@ref(tab:tab1)).
+
+```{r tab1, echo = FALSE, results="asis", eval="hide"}
+library(knitr)
+all <- read.csv("Bd_all.csv", header=F)
+colnames(all)<-c( "Chromosome", "Start", "End", "GeneID", "strand")
+display<-all[1:4,1:4]
+kable(display, caption="Example input file", row.names=NA, "pandoc", align="rccc")
+```
+
+Gene expression data is included as a binary designation, where 0 = not significantly differentially expressed by treatment, and 1 = significantly differentially expressed by treatment. We use *P* <= 0.01; |Log~2~ Fold Change| >= 1 as a cut-off for significantly differentially expressed genes.
+
+The analysis pipeline uses a sliding window of size 10 (the window captures 10 genes), which calculates the density of the treatment-responsive genes within the window. The pipeline then counts the number of consecutive treatment-responsive genes in a row.
+To determine if a locus is a 'hotspot' for treatment-responsive genes or not, we choose a significance threshold based on permutation testing.
+
+## Choosing a significance threshold
+
+We use permutation testing to choose a significance threshold (i.e. at what density of responsive genes within a sliding window of 10 genes is that window a 'significant' hotspot?).
+Briefly, the position of treatment-responsive genes is shuffled, to create a new file where a random set of genes are now 'responsive', but original gene order and the number of response genes remains the same.
+This process is repeated 1000 times, and the gene density and consecutive gene analyses are performed on all shuffled datasets.
+A frequency table of gene density and number of consecutive genes (Figure \@ref(fig:sig)) are returned, and a threshold can be determined based on probability of each value occuring by chance (i.e. x in 1000 times). In general, we consider a gene density and length of consecutivew genes at a probability of 0.01% to be a significant hotspot.
+
+```{r sig, echo=F,fig.cap="Choosing a significance threshold using 1000 permutations of the data"}
+
+library(ggplot2)
+library(gridExtra)
+options(scipen=999)
+list<-list()
+for(i in 1:100){
+  data<-read.csv(paste("Permutations_by_Timepoint/", i, "/density.csv", sep=""))
+  list[[length(list)+1]] = data
+}
+
+all<-as.data.frame(do.call(rbind.data.frame, list))
+
+all<-aggregate(all$n, by=list(all$density, all$Stress), FUN=sum)
+all$percentage<-NULL
+colnames(all)<-c("density", "Stress", "n")
+windows<-aggregate(all$n, by=list(all$Stress), FUN=sum)
+colnames(windows)<-c("Stress", "total")
+percent<-merge(all, windows, by="Stress")
+percent$percentage<-percent$n/percent$total*100
+percent<-percent[(percent$density > 0),]
+percent$Data<-"Density"
+percent<-percent[(percent$Stress=="Bd21_ROS_6"),]
+percent_d<-percent
+
+plot_density<-ggplot(percent_d, aes(x=as.factor(density), y=percentage)) + geom_point(size=2) + 
+  theme_bw() + scale_y_log10() + geom_hline(yintercept=0.01) +
+  xlab("Density") + ylab ("Percentage chance") +
+  theme(text = element_text(size=15))
+list<-list()
+for(i in 1:100){
+  data<-read.csv(paste("Permutations_by_Timepoint//", i, "/consec.csv", sep=""))
+  list[[length(list)+1]] = data
+}
+
+all<-as.data.frame(do.call(rbind.data.frame, list))
+all<-aggregate(all$n, by=list(all$Consecutive, all$Stress), FUN=sum)
+all$percentage<-NULL
+colnames(all)<-c("consecutive", "Stress", "n")
+windows<-aggregate(all$n, by=list(all$Stress), FUN=sum)
+colnames(windows)<-c("Stress", "total")
+percent<-merge(all, windows, by="Stress")
+percent$percentage<-percent$n/percent$total*100
+percent<-percent[(percent$consecutive > 0),]
+percent$Data<-"Consecutive"
+percent<-percent[(percent$Stress=="Bd21_ROS_6"),]
+percent_c<-percent
+
+plot_consec<-ggplot(percent_c, aes(x=as.factor(consecutive), y=percentage)) + geom_point(size=2) + 
+  theme_bw() + scale_y_log10() + geom_hline(yintercept=0.01) +
+  xlab("Consecutive") + ylab ("Percentage chance") +
+  theme(text = element_text(size=15))
+
+grid.arrange(plot_density, plot_consec, ncol=2)
+
+```
+
+## The datasets
+Once a significance threshold is determined, we run the analysis on the true data, and identify hotspots. To increase resolution to the hotspot analysis, datasets that detail duplicate conditions were merged. The datasets used are in Table \@ref(tab:tab2).
+
+```{r tab2, echo = FALSE, results="asis", eval="hide"}
+library(knitr)
+metadata<-read.csv("data_descriptions.csv")
+kable(metadata, caption="Datasets used for hotspot analysis", row.names=NA, "pandoc", align="rl")
+```
+
+### Data merging
+We ran the hotspot analysis on two merged data sets - the first was data merged by Timepoint and treatment, and the second was the data merged by Cultivar and treatment. In both cases, concentrations were merged (i.e. 5 and 20 ug data were combined).
+
+# Results
+## Choosing a significance threshold
+In The first merged data set, where timepoints and concentrations were combined, a gene density of 0.7 and 6 consecutive genes appeared < 0.01% of the time in the permutation test. Therefore we consider any locus with a density of 0.7 or higher, and or a string of 6 or more consecutive treatment-responsive genes, to be a 'hotspot' (Figure \@ref(fig:threshold1))
+
+```{r threshold1, echo=FALSE, fig.height=11, fig.width=13, fig.cap="Frequency of gene density and consecutive genes based on 1000 permutations of the data, with timepoints and concentrations merged"}
+
+library(ggplot2)
+library(gridExtra)
+options(scipen=999)
+list<-list()
+for(i in 1:100){
+  data<-read.csv(paste("Permutations_by_Timepoint/", i, "/density.csv", sep=""))
+  list[[length(list)+1]] = data
+}
+
+all<-as.data.frame(do.call(rbind.data.frame, list))
+
+all<-aggregate(all$n, by=list(all$density, all$Stress), FUN=sum)
+all$percentage<-NULL
+colnames(all)<-c("density", "Stress", "n")
+windows<-aggregate(all$n, by=list(all$Stress), FUN=sum)
+colnames(windows)<-c("Stress", "total")
+percent<-merge(all, windows, by="Stress")
+percent$percentage<-percent$n/percent$total*100
+percent<-percent[(percent$density > 0),]
+plot1<-ggplot(percent, aes(x=as.factor(density), y=percentage)) + geom_point(size=2) + 
+  facet_wrap(~Stress, ncol=2) + theme_bw() + scale_y_log10() + geom_hline(yintercept=0.01) +
+  xlab("Density") + ylab ("Percentage chance") +
+  theme(text = element_text(size=15)) 
+
+list<-list()
+for(i in 1:100){
+  data<-read.csv(paste("Permutations_by_Timepoint/", i, "/consec.csv", sep=""))
+  list[[length(list)+1]] = data
+}
+
+all<-as.data.frame(do.call(rbind.data.frame, list))
+all<-aggregate(all$n, by=list(all$Consecutive, all$Stress), FUN=sum)
+all$percentage<-NULL
+colnames(all)<-c("consecutive", "Stress", "n")
+windows<-aggregate(all$n, by=list(all$Stress), FUN=sum)
+colnames(windows)<-c("Stress", "total")
+percent<-merge(all, windows, by="Stress")
+percent$percentage<-percent$n/percent$total*100
+percent<-percent[(percent$consecutive > 0),]
+plot2<-ggplot(percent, aes(x=as.factor(consecutive), y=percentage)) + geom_point(size=2) + 
+  facet_wrap(~Stress, ncol=2) + theme_bw() + scale_y_log10() + geom_hline(yintercept=0.01) +
+  xlab("Consecutive") + ylab ("Percentage chance") +
+  theme(text = element_text(size=15)) 
+
+grid.arrange(plot1, plot2, ncol=2)
+
+
+```
+
+In the second dataset, where cultivars were merged by timepoint, concentration, and cultivar, a gene density of 0.8, and 6 consecutive treatment-responsive genes occured more than 0.01% of the time in the permutations (Figure \@ref(fig:threshold2)).
+
+```{r threshold2, echo=FALSE, fig.height=11, fig.width=13, fig.cap="Frequency of gene density and consecutive genes based on 1000 permutations of the data, with timepoints, cultivars, and concentrations merged"}
+
+library(ggplot2)
+library(gridExtra)
+options(scipen=999)
+list<-list()
+for(i in 1:100){
+  data<-read.csv(paste("Permutations_by_cultivar/", i, "/density.csv", sep=""))
+  list[[length(list)+1]] = data
+}
+
+all<-as.data.frame(do.call(rbind.data.frame, list))
+all<-aggregate(all$n, by=list(all$density, all$Stress), FUN=sum)
+all$percentage<-NULL
+colnames(all)<-c("density", "Stress", "n")
+windows<-aggregate(all$n, by=list(all$Stress), FUN=sum)
+colnames(windows)<-c("Stress", "total")
+percent<-merge(all, windows, by="Stress")
+percent$percentage<-percent$n/percent$total*100
+percent<-percent[(percent$density > 0),]
+plot1<-ggplot(percent, aes(x=as.factor(density), y=percentage)) + geom_point(size=2) + 
+  facet_wrap(~Stress, ncol=2) + theme_bw() + scale_y_log10() + geom_hline(yintercept=0.01) +
+  xlab("Density") + ylab ("Percentage chance") +
+  theme(text = element_text(size=15)) 
+
+list<-list()
+for(i in 1:100){
+  data<-read.csv(paste("Permutations_by_cultivar/", i, "/consec.csv", sep=""))
+  list[[length(list)+1]] = data
+}
+
+all<-as.data.frame(do.call(rbind.data.frame, list))
+all<-aggregate(all$n, by=list(all$Consecutive, all$Stress), FUN=sum)
+all$percentage<-NULL
+colnames(all)<-c("consecutive", "Stress", "n")
+windows<-aggregate(all$n, by=list(all$Stress), FUN=sum)
+colnames(windows)<-c("Stress", "total")
+percent<-merge(all, windows, by="Stress")
+percent$percentage<-percent$n/percent$total*100
+percent<-percent[(percent$consecutive > 0),]
+plot2<-ggplot(percent, aes(x=as.factor(consecutive), y=percentage)) + geom_point(size=2) + 
+  facet_wrap(~Stress, ncol=2) + theme_bw() + scale_y_log10() + geom_hline(yintercept=0.01) +
+  xlab("Consecutive") + ylab ("Percentage chance") +
+  theme(text = element_text(size=15)) 
+
+grid.arrange(plot1, plot2, ncol=2)
+```
+
+## The hotspot analysis
+
+For high resolution for the hotspot analysis, we proceed with the second data set, where timepoints, cultivars, and concentrations are merged. This is to boost the amount of data used to identify the hotspot, and allow us to identify potential cultivar specific hotspots that can be dissected by timepoint at a later date.
+
+To identify hotspots, we plot chromosome position (basepairs) against gene density for each chromosome and each stress.  
+Bd1: Figure \@ref(fig:Bd1), Bd2: Figure \@ref(fig:Bd2), Bd3: Figure\@ref(fig:Bd3), Bd4: Figure \@ref(fig:Bd4), Bd5: Figure \@ref(fig:Bd5)  
+
+```{r Bd1, echo=FALSE, fig.cap="Hotspots on chromosome Bd1", results="asis", results=F, warning=F, fig.height=20, fig.width=20}
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+
+data<-read.csv("/Users/harrietbenbow/Documents/Miguel/Hotspot/Brachypodium/Cultiver_combined/Hotpot files/Bd1.csv", header=T)
+data$Hotspot<-factor(data$Hotspot, levels=c("Not hotspot" , "Hotspot"))
+
+ggplot(data, aes(x=end, y=density)) +geom_jitter(size=1.7, aes(colour=Hotspot), alpha=0.6) +facet_grid(Stress~.) + xlab("Position (bp)") + 
+  ylab("Gene Density") + ggtitle("Bd1") + theme_bw() +
+  geom_hline(yintercept=0.8, alpha=0.7) +
+  theme(text = element_text(size=40, colour="black")) +
+  scale_color_manual( values=c("grey60", "orangered2")) +
+  coord_cartesian(ylim=c(0,1))
+```
+
+```{r Bd2, echo=FALSE, fig.cap="Hotspots on chromosome Bd2", results="asis", results=F, warning=F, fig.height=20, fig.width=20}
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+
+data<-read.csv("/Users/harrietbenbow/Documents/Miguel/Hotspot/Brachypodium/Cultiver_combined/Hotpot files/Bd2.csv", header=T)
+data$Hotspot<-factor(data$Hotspot, levels=c("Not hotspot" , "Hotspot"))
+
+ggplot(data, aes(x=end, y=density)) +geom_jitter(size=1.7, aes(colour=Hotspot), alpha=0.6) +facet_grid(Stress~.) + xlab("Position (bp)") + 
+  ylab("Gene Density") + ggtitle("Bd2") + theme_bw() +
+  geom_hline(yintercept=0.8, alpha=0.7) +
+  theme(text = element_text(size=40, colour="black")) +
+  scale_color_manual( values=c("grey60", "orangered2")) +
+  coord_cartesian(ylim=c(0,1))
+```
+
+```{r Bd3, echo=FALSE, fig.cap="Hotspots on chromosome Bd3", results="asis", results=F, warning=F, fig.height=20, fig.width=20}
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+
+data<-read.csv("/Users/harrietbenbow/Documents/Miguel/Hotspot/Brachypodium/Cultiver_combined/Hotpot files/Bd3.csv", header=T)
+data$Hotspot<-factor(data$Hotspot, levels=c("Not hotspot" , "Hotspot"))
+
+ggplot(data, aes(x=end, y=density)) +geom_jitter(size=1.7, aes(colour=Hotspot), alpha=0.6) +facet_grid(Stress~.) + xlab("Position (bp)") + 
+  ylab("Gene Density") + ggtitle("Bd3") + theme_bw() +
+  geom_hline(yintercept=0.8, alpha=0.7) +
+  theme(text = element_text(size=40, colour="black")) +
+  scale_color_manual( values=c("grey60", "orangered2")) +
+  coord_cartesian(ylim=c(0,1))
+```
+
+```{r Bd4, echo=FALSE, fig.cap="Hotspots on chromosome Bd4", results="asis", results=F, warning=F, fig.height=20, fig.width=20}
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+
+data<-read.csv("/Users/harrietbenbow/Documents/Miguel/Hotspot/Brachypodium/Cultiver_combined/Hotpot files/Bd4.csv", header=T)
+data$Hotspot<-factor(data$Hotspot, levels=c("Not hotspot" , "Hotspot"))
+
+ggplot(data, aes(x=end, y=density)) +geom_jitter(size=1.7, aes(colour=Hotspot), alpha=0.6) +facet_grid(Stress~.) + xlab("Position (bp)") + 
+  ylab("Gene Density") + ggtitle("Bd4") + theme_bw() +
+  geom_hline(yintercept=0.8, alpha=0.7) +
+  theme(text = element_text(size=40, colour="black")) +
+  scale_color_manual( values=c("grey60", "orangered2")) +
+  coord_cartesian(ylim=c(0,1))
+```
+
+```{r Bd5, echo=FALSE, fig.cap="Hotspots on chromosome Bd5", results="asis", results=F, warning=F, fig.height=20, fig.width=20}
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+
+data<-read.csv("/Users/harrietbenbow/Documents/Miguel/Hotspot/Brachypodium/Cultiver_combined/Hotpot files/Bd5.csv", header=T)
+data$Hotspot<-factor(data$Hotspot, levels=c("Not hotspot" , "Hotspot"))
+
+ggplot(data, aes(x=end, y=density)) +geom_jitter(size=1.7, aes(colour=Hotspot), alpha=0.6) +facet_grid(Stress~.) + xlab("Position (bp)") + 
+  ylab("Gene Density") + ggtitle("Bd5") + theme_bw() +
+  geom_hline(yintercept=0.8, alpha=0.7) +
+  theme(text = element_text(size=40, colour="black")) +
+  scale_color_manual( values=c("grey60", "orangered2")) +
+  coord_cartesian(ylim=c(0,1))
+```
+
+# Future work
+## Annotating hotspots
+Hotspot excel files can be found in the accompanying folder. Each condition (i.e. Bd2.3_DON) will be in a separate file called "density *X*.csv" where *X* refers to the name of the dataset you wish to explore.
+Please note, there is nothing to delimit each hotspot within these files; we found the best thing to do is use excel conditional formatting to visually differentiate the hotspots based on cell colour.
+To do this, highlight column C, then click HOME > CONDITIONDAL FORMATTING > COLOUR SCALES > then chose any of the colour scale options. 
+You will see this tends to divide the data into 'blocks' where each block is a hotspot.
+In our experience, this makes it easier to identify and then characterise the hotspots.
+
+In our experience, the wheat x *Fusarium* hotspots tended to be either paralogous, metabolic, and or both, so it would be interesting to see if the same pattern appears in *Brachy*. One pattern we noticed is a hotspot on Bd3 that appears in most every data set (although not 'significant' in some). 
+
+## Supplied files
+Within the directory, you will find .csv files (to be opened in excel or R), with the hotspots (as described in the previous section). Additionally, you will find each of the graphs included in this report, and similar graphs that show each condition with the 5 chromosome plots stacked together, rather than each chromosome in each plot. 
+If you have any questions please do not hesitate to contact me; harriet.benbow@ucd.ie.
